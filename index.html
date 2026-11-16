@@ -63,6 +63,11 @@
   .err { margin-top: 16px; color: var(--bad); font-size: 14px; }
   footer { margin-top: 22px; color: var(--muted); font-size: 13px; text-align: center; }
   @media (prefers-reduced-motion: reduce) { .fill { transition: none; } .fill.ready { animation: none; } }
+  .shots { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-top: 16px; align-items: start; }
+  .shot .thead { margin-bottom: 12px; }
+  .shot img { display: block; width: 100%; height: auto; border-radius: 10px; background: var(--track); cursor: zoom-in; }
+  .shot .empty { padding: 36px 12px; text-align: center; color: var(--muted); background: var(--track); border-radius: 10px; font-size: 14px; }
+  .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-inline-end: 6px; animation: pulse 1.4s ease-in-out infinite; vertical-align: middle; }
 </style>
 </head>
 <body>
@@ -74,58 +79,44 @@
 
   <section class="card problem" id="problem" hidden></section>
 
-  <section class="card inv">
-    <div class="thead"><h2>🎒 אינוונטורי</h2><span class="badge" id="invlbl">–</span></div>
-    <img id="invimg" alt="צילום האינוונטורי מהמשחק" hidden>
-    <div class="empty" id="invempty">עוד אין צילום של האינוונטורי</div>
+  <section class="tables" id="tables"></section>
+
+  <section class="shots">
+    <article class="card shot">
+      <div class="thead"><h2><span class="live"></span>מסך המשחק</h2><span class="badge" id="scrlbl">–</span></div>
+      <a id="scrlink" target="_blank" rel="noopener"><img id="scrimg" alt="צילום מסך מהמשחק" hidden></a>
+      <div class="empty" id="scrempty">עוד אין צילום מסך</div>
+    </article>
+    <article class="card shot">
+      <div class="thead"><h2>🎒 אינוונטורי</h2><span class="badge" id="invlbl">–</span></div>
+      <a id="invlink" target="_blank" rel="noopener"><img id="invimg" alt="צילום האינוונטורי מהמשחק" hidden></a>
+      <div class="empty" id="invempty">עוד אין צילום של האינוונטורי</div>
+    </article>
   </section>
 
-  <section class="tables" id="tables"></section>
   <div class="err" id="err" hidden></div>
   <footer id="foot"></footer>
 </main>
 
 <script>
 (() => {
-  const qs = new URLSearchParams(location.search);
-  function source(file) {
-    const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
-    const repo = location.pathname.split("/").filter(Boolean)[0];
-    if (m && repo) {
-      return {
-        url: `https://api.github.com/repos/${m[1]}/${repo}/contents/${file}?ref=data`,
-        headers: { Accept: "application/vnd.github.raw+json" },
-      };
-    }
-    return { url: file, headers: {} };
-  }
-  const SRC = source("status.json");
-  const IMG = source("inventory.jpg");
-  let invShown = null;
-
-  async function loadInventory() {
-    if (!data || !data.inventory_updated || data.inventory_updated === invShown) return;
-    try {
-      const r = await fetch(IMG.url + (IMG.url.includes("?") ? "&" : "?") + "t=" + Date.now(),
-                            { headers: IMG.headers, cache: "no-store" });
-      if (!r.ok) return;
-      const url = URL.createObjectURL(await r.blob());
-      const img = $("invimg");
-      if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
-      img.src = url; img.hidden = false; $("invempty").hidden = true;
-      invShown = data.inventory_updated;
-    } catch (e) { /* keep the old picture */ }
-  }
-  const REFRESH_MS = 120000;   // GitHub allows ~60 requests/hour without login
-  let data = null, fetchedAt = 0;
-
+  const REFRESH_SEC = 60;  // GitHub allows 60 checks/hour per network without login
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+
+  // where the data lives: <user>.github.io/<repo>/ -> branch "data" of that repo
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
+  const repo = location.pathname.split("/").filter(Boolean)[0];
+  const GH = m && repo ? { owner: m[1], repo } : null;
+
+  let data = null, lastSha = null, slow = false, apiBlockedUntil = 0, nextCheck = 0;
+  const shown = { screen: null, inventory: null };
+
   function fmt(sec) {
     sec = Math.max(0, Math.round(sec));
-    const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+    const h = Math.floor(sec / 3600), mm = Math.floor(sec % 3600 / 60), s = sec % 60;
     const pad = (n) => String(n).padStart(2, "0");
-    return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+    return h ? `${h}:${pad(mm)}:${pad(s)}` : `${mm}:${pad(s)}`;
   }
   function ago(sec) {
     if (sec < 60) return "עכשיו";
@@ -133,20 +124,57 @@
     return `לפני ${(sec / 3600).toFixed(1)} שע'`;
   }
 
+  // Newest data: ask GitHub for the latest commit of the data branch (1 cheap call),
+  // then read the files of exactly that commit (always fresh, no limit).
+  // If GitHub rate-limits us, fall back to the branch files (can be ~5 min old).
+  async function locate() {
+    if (!GH) return { sha: "local", base: "" };
+    if (Date.now() > apiBlockedUntil) {
+      try {
+        const r = await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/git/ref/heads/data`, { cache: "no-store" });
+        if (r.ok) {
+          const sha = (await r.json()).object.sha;
+          slow = false;
+          return { sha, base: `https://raw.githubusercontent.com/${GH.owner}/${GH.repo}/${sha}/` };
+        }
+        if (r.status === 403 || r.status === 429) {
+          const reset = Number(r.headers.get("x-ratelimit-reset"));
+          apiBlockedUntil = reset ? reset * 1000 : Date.now() + 10 * 60000;
+        }
+      } catch (e) { /* network hiccup -> fallback */ }
+    }
+    slow = true;
+    return { sha: null, base: `https://raw.githubusercontent.com/${GH.owner}/${GH.repo}/data/` };
+  }
+
   async function load() {
+    nextCheck = Date.now() + REFRESH_SEC * 1000;
     try {
-      const sep = SRC.url.includes("?") ? "&" : "?";
-      const r = await fetch(SRC.url + sep + "t=" + Date.now(), { headers: SRC.headers, cache: "no-store" });
-      if (!r.ok) throw new Error(r.status === 403 ? "GitHub הגביל בקשות, ננסה שוב בעוד כמה דקות" : "HTTP " + r.status);
+      const loc = await locate();
+      const fixed = loc.sha && loc.sha !== "local";
+      if (fixed && loc.sha === lastSha) { render(); return; }  // nothing new
+      const bust = fixed ? "" : "?t=" + Date.now();
+      const r = await fetch(loc.base + "status.json" + bust, { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
       data = await r.json();
-      fetchedAt = Date.now();
+      lastSha = loc.sha;
+      setPic("screen", "scr", "screen.jpg", data.screen_updated, loc.base, bust);
+      setPic("inventory", "inv", "inventory.jpg", data.inventory_updated, loc.base, bust);
       $("err").hidden = true;
     } catch (e) {
       $("err").hidden = false;
       $("err").textContent = "לא הצלחתי לטעון את הנתונים: " + e.message;
     }
     render();
-    loadInventory();
+  }
+
+  function setPic(key, id, file, stamp, base, bust) {
+    if (!stamp || stamp === shown[key]) return;
+    const url = base + file + (bust || "?v=" + Math.round(stamp));
+    const img = $(id + "img");
+    img.onload = () => { img.hidden = false; $(id + "empty").hidden = true; shown[key] = stamp; };
+    img.src = url;
+    $(id + "link").href = url;
   }
 
   function potHtml(p, now) {
@@ -174,17 +202,20 @@
   }
 
   function render() {
+    const left = Math.max(0, Math.round((nextCheck - Date.now()) / 1000));
+    $("foot").textContent = (slow ? "GitHub הגביל בדיקות - הנתונים יכולים להיות בני עד 5 דק' · " : "")
+      + `בדיקה הבאה בעוד ${left} שנ' · ה-BAR זז כל שנייה לפי זמן הגדילה הממוצע`;
     if (!data) return;
     const now = Date.now() / 1000;
-    const botNow = now;
     const age = now - data.updated;
-    const online = data.running && age < 11 * 60;
+    const online = data.running && age < 8 * 60;
     $("dot").className = "dot " + (online ? "on" : "off");
     $("stxt").textContent = (online ? "הבוט פעיל" : (data.running ? "אין עדכון מהבוט" : "הבוט כבוי")) + ` · עודכן ${ago(age)}`;
 
     const pr = $("problem");
     pr.hidden = !data.problem;
     if (data.problem) pr.innerHTML = `⚠️ הבוט עצר: הדמות לא נמצאת בנקודה שלה<small>${esc(data.problem)}</small>`;
+    $("scrlbl").textContent = data.screen_updated ? `צולם ${ago(now - data.screen_updated)} · כל 3 דק'` : "עוד לא צולם";
     $("invlbl").textContent = (data.inventory_updated ? `צולם ${ago(now - data.inventory_updated)}` : "עוד לא צולם")
       + ` · ${data.collections} איסופים`;
 
@@ -207,13 +238,12 @@
         badge = `<span class="badge fast">⚡ מהיר ב-${Math.round((1 - a / slowest) * 100)}% · ${fmt(a)}</span>`;
       }
       return `<article class="card"><div class="thead"><h2>${esc(t)}</h2>${badge}</div>
-        ${ps.map((p) => potHtml(p, botNow)).join("")}</article>`;
+        ${ps.map((p) => potHtml(p, now)).join("")}</article>`;
     }).join("");
-    $("foot").textContent = `מתעדכן כל ${REFRESH_MS / 60000} דקות · ה-BAR זז כל שנייה לפי זמן הגדילה הממוצע`;
   }
 
   load();
-  setInterval(load, REFRESH_MS);
+  setInterval(() => { if (Date.now() >= nextCheck) load(); }, 1000);
   setInterval(render, 1000);
 })();
 </script>
