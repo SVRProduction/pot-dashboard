@@ -100,7 +100,7 @@
 
 <script>
 (() => {
-  const REFRESH_SEC = 60;  // GitHub allows 60 checks/hour per network without login
+  const REFRESH_SEC = 90;  // GitHub allows 60 checks/hour per network without login
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 
@@ -243,8 +243,12 @@
   }
 
   load();
-  setInterval(() => { if (Date.now() >= nextCheck) load(); }, 1000);
+  // hidden tabs don't check, so several open tabs/phones don't use up GitHub's limit
+  setInterval(() => { if (!document.hidden && Date.now() >= nextCheck) load(); }, 1000);
   setInterval(render, 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && Date.now() >= nextCheck - 60000) load();
+  });
 })();
 </script>
 </body>
