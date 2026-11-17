@@ -60,6 +60,16 @@
   .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin-top: 8px; font-variant-numeric: tabular-nums; }
   .problem { margin-bottom: 16px; border-color: var(--bad); color: var(--bad); font-weight: 600; }
   .problem small { display: block; font-weight: 400; color: var(--muted); margin-top: 4px; }
+  .health { margin-bottom: 16px; border-inline-start: 5px solid var(--c, var(--line)); }
+  .health.ok { --c: var(--grow); } .health.warn { --c: var(--ready); } .health.bad { --c: var(--bad); }
+  .hmain { font-weight: 700; font-size: 17px; color: var(--c); }
+  .hmain small { display: block; font-weight: 400; font-size: 14px; color: var(--muted); margin-top: 3px; }
+  .hsub { font-size: 13px; color: var(--muted); margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .hev { list-style: none; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .hev:empty { display: none; }
+  .hev li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .hev li + li { margin-top: 5px; }
+  .hev time { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .err { margin-top: 16px; color: var(--bad); font-size: 14px; }
   footer { margin-top: 22px; color: var(--muted); font-size: 13px; text-align: center; }
   @media (prefers-reduced-motion: reduce) { .fill { transition: none; } .fill.ready { animation: none; } }
@@ -110,6 +120,12 @@
     <h1>🌱 החווה שלי</h1>
     <div class="status"><a href="log.html" style="color:inherit;margin-inline-end:10px">🖥️ חלון הבוט</a><span class="dot" id="dot"></span><span id="stxt">טוען…</span></div>
   </header>
+
+  <section class="card health" id="health" hidden>
+    <div class="hmain" id="hmain"></div>
+    <div class="hsub" id="hsub"></div>
+    <ul class="hev" id="hev"></ul>
+  </section>
 
   <section class="card problem" id="problem" hidden></section>
 
@@ -289,6 +305,46 @@
     </div>`;
   }
 
+  const EV = {
+    power: ["⚡", "המחשב כבה / הופעל מחדש (חשמל?)"],
+    internet: ["📡", "האינטרנט נפל"],
+    bot: ["🤖", "הבוט לא רץ (נסגר או קרס), המחשב נשאר דלוק"],
+    stopped: ["⏹️", "הבוט נעצר (F12 / נסגר)"],
+    game_missing: ["💥", "המשחק נסגר / קרס"],
+    game_frozen: ["🥶", "המשחק נתקע (לא הגיב)"],
+  };
+  const hhmm = (t) => new Date(t * 1000).toLocaleString("he-IL", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+
+  function renderHealth(now, age) {
+    const h = data.health, box = $("health");
+    box.hidden = false;
+    let cls, main, sub;
+    const SILENT = 3 * 60;
+    if (data.running && age > SILENT) {
+      cls = "bad";
+      main = `🔌 אין קשר עם המחשב כבר ${fmt(age)}`;
+      sub = "האינטרנט נפל, החשמל נפל, או שהמחשב כבה. כשהקשר יחזור יופיע כאן מה בדיוק קרה.";
+    } else if (!data.running) {
+      cls = "warn"; main = "⏹️ הבוט כבוי"; sub = `נעצר ${ago(age)} (F12 או שהחלון נסגר).`;
+    } else if (!h) {
+      cls = "warn"; main = "🤖 הבוט פעיל"; sub = "גרסה ישנה של הבוט - הפעל מחדש כדי לראות מצב משחק.";
+    } else {
+      const since = fmt(now - h.game_since);
+      if (h.game === "missing") { cls = "bad"; main = `💥 המשחק סגור / קרס - כבר ${since}`; sub = "הבוט מחכה שהמשחק ייפתח שוב. האינטרנט והמחשב תקינים."; }
+      else if (h.game === "frozen") { cls = "bad"; main = `🥶 המשחק לא מגיב - כבר ${since}`; sub = "חלון המשחק קיים אבל נתקע. האינטרנט והמחשב תקינים."; }
+      else if (h.game === "background") { cls = "warn"; main = `🪟 המשחק לא בחזית - כבר ${since}`; sub = "חלון אחר מעליו והבוט לא מצליח להחזיר אותו. לא נשלחים מקשים."; }
+      else { cls = "ok"; main = "✅ הכל תקין"; sub = "המחשב דלוק, יש אינטרנט, והמשחק פתוח."; }
+    }
+    box.className = "card health " + cls;
+    $("hmain").innerHTML = `${main}<small>${esc(sub)}</small>`;
+    $("hsub").textContent = h ? `המחשב דלוק מאז ${hhmm(h.pc_boot)} · הבוט רץ מאז ${hhmm(h.bot_started)} · קשר אחרון ${ago(age)}` : "";
+    const ev = (data.events || []).slice(-6).reverse();
+    $("hev").innerHTML = ev.map((e) => {
+      const [ic, label] = EV[e.kind] || ["•", e.kind];
+      return `<li><span>${ic} ${esc(label)} · ${fmt(e.to - e.from)}</span><time>${hhmm(e.from)} ← ${hhmm(e.to)}</time></li>`;
+    }).join("");
+  }
+
   function render() {
     const left = Math.max(0, Math.round((nextCheck - Date.now()) / 1000));
     $("foot").textContent = (slow ? "GitHub הגביל בדיקות - הנתונים יכולים להיות בני עד 5 דק' · " : "")
@@ -301,6 +357,7 @@
     $("stxt").textContent = (online ? "הבוט פעיל" : (data.running ? "אין עדכון מהבוט" : "הבוט כבוי")) + ` · עודכן ${ago(age)}`;
 
     renderCalib(now);
+    renderHealth(now, age);
     const pr = $("problem");
     pr.hidden = !data.problem;
     if (data.problem) pr.innerHTML = `⚠️ הבוט עצר: הדמות לא נמצאת בנקודה שלה<small>${esc(data.problem)}</small>`;
