@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot Console</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
+<style>
+  :root { --bg: #0d100d; --panel: #141914; --text: #d7e2d4; --muted: #7f8a7c; --line: #253025;
+          --ok: #6fd27c; --warn: #f0b43a; --err: #ff6b5e; --live: #8fd0ff; }
+  :root[data-theme="light"] { --bg: #f4f5f2; --panel: #ffffff; --text: #1d211c; --muted: #6b7168; --line: #e2e5df;
+          --ok: #2f8a3e; --warn: #a86f00; --err: #c8483c; --live: #1f6fb2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, "Segoe UI", Arial, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 18px 16px 32px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  h1 { font-size: 19px; margin: 0; }
+  a { color: var(--live); }
+  .meta { color: var(--muted); font-size: 13px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-inline-end: 6px; }
+  .dot.on { background: var(--ok); animation: pulse 1.4s ease-in-out infinite; }
+  .dot.off { background: var(--err); }
+  @keyframes pulse { 50% { opacity: .4; } }
+  .term { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .live { padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--live);
+          font: 13px/1.5 ui-monospace, Consolas, monospace; direction: ltr; text-align: left; white-space: pre-wrap; word-break: break-word; }
+  pre { margin: 0; padding: 12px 14px; height: calc(100vh - 190px); min-height: 300px; overflow: auto;
+        font: 12.5px/1.55 ui-monospace, Consolas, monospace; direction: ltr; text-align: left; white-space: pre-wrap; word-break: break-word; }
+  .w { color: var(--warn); } .e { color: var(--err); } .ok { color: var(--ok); font-weight: 600; }
+  label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  @media (prefers-reduced-motion: reduce) { .dot.on { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🖥️ חלון הבוט בזמן אמת</h1>
+    <div class="meta">
+      <span><span class="dot" id="dot"></span><span id="age">טוען…</span></span>
+      <label><input type="checkbox" id="follow" checked> גלילה אוטומטית</label>
+      <a href="./">← חזרה לחווה</a>
+    </div>
+  </header>
+  <div class="term">
+    <div class="live" id="live">…</div>
+    <pre id="log"></pre>
+  </div>
+  <p class="meta" id="note" style="margin-top:10px"></p>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
+  const repo = location.pathname.split("/").filter(Boolean)[0];
+  const GH = m && repo ? { owner: m[1], repo } : null;
+  const tok = (() => { try { return localStorage.getItem("gh_token"); } catch (e) { return null; } })();
+  const EVERY = tok ? 5 : 90;   // with your key: 5000 checks/hour; without: only 60
+  let lastSha = null, lastText = "", updated = 0;
+  const esc = (s) => s.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+
+  $("note").textContent = (tok ? "מתעדכן כל 5 שניות. " : "מתעדכן כל 90 שניות, כי אין מפתח. שמור מפתח בכרטיס \"איסוף מהאתר\" בדף הראשי כדי לקבל עדכון כל 5 שניות. ")
+    + "הבוט שולח עדכון כל 8 שניות בערך, אז יש עיכוב קטן לעומת המחשב.";
+
+  function paint(text) {
+    const parts = text.split("\n\n▶ ");
+    $("live").textContent = "▶ " + (parts[1] || "—");
+    const html = esc(parts[0]).split("\n").map((l) =>
+      / ERROR /.test(l) ? `<span class="e">${l}</span>` :
+      / WARNING /.test(l) ? `<span class="w">${l}</span>` :
+      /COLLECTED/.test(l) ? `<span class="ok">${l}</span>` : l).join("\n");
+    const pre = $("log");
+    pre.innerHTML = html;
+    if ($("follow").checked) pre.scrollTop = pre.scrollHeight;
+  }
+
+  async function tick() {
+    try {
+      let base;
+      const h = tok ? { Authorization: "Bearer " + tok } : {};
+      const r = await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/git/ref/heads/data`, { cache: "no-store", headers: h });
+      if (r.ok) {
+        const sha = (await r.json()).object.sha;
+        if (sha === lastSha) return;
+        lastSha = sha;
+        base = `https://raw.githubusercontent.com/${GH.owner}/${GH.repo}/${sha}/`;
+      } else {
+        base = `https://raw.githubusercontent.com/${GH.owner}/${GH.repo}/data/`;
+      }
+      const t = await (await fetch(base + "log.txt" + (r.ok ? "" : "?t=" + Date.now()), { cache: "no-store" })).text();
+      if (t !== lastText) { lastText = t; paint(t); }
+      try { updated = (await (await fetch(base + "status.json", { cache: "no-store" })).json()).updated; } catch (e) {}
+    } catch (e) { $("age").textContent = "שגיאה בטעינה: " + e.message; }
+  }
+
+  function clock() {
+    if (!updated) return;
+    const s = Math.round(Date.now() / 1000 - updated);
+    $("dot").className = "dot " + (s < 8 * 60 ? "on" : "off");
+    $("age").textContent = s < 8 * 60 ? `עודכן לפני ${s} שנ'` : `אין עדכון מהבוט ${Math.round(s / 60)} דק'`;
+  }
+
+  if (!GH) { $("age").textContent = "הדף עובד רק באתר ב-GitHub"; return; }
+  tick();
+  setInterval(() => { if (!document.hidden) tick(); }, EVERY * 1000);
+  setInterval(clock, 1000);
+})();
+</script>
+</body>
+</html>
