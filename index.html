@@ -67,6 +67,20 @@
   .shot .thead { margin-bottom: 12px; }
   .shot img { display: block; width: 100%; height: auto; border-radius: 10px; background: var(--track); cursor: zoom-in; }
   .shot .empty { padding: 36px 12px; text-align: center; color: var(--muted); background: var(--track); border-radius: 10px; font-size: 14px; }
+  .go { margin-top: 14px; width: 100%; padding: 11px 14px; border: 0; border-radius: 10px; font: inherit; font-weight: 600;
+    background: var(--grow); color: #fff; cursor: pointer; }
+  .go:hover { filter: brightness(1.07); }
+  .go:disabled { opacity: .55; cursor: progress; }
+  .ctl { margin-top: 16px; }
+  .ctl .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ctl input { flex: 1 1 220px; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--text); font: inherit; direction: ltr; }
+  .ctl .go { width: auto; margin: 0; }
+  .ctl p { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; font: inherit; font-size: 13px; cursor: pointer; }
+  .res { font-size: 14px; }
+  .res.bad { color: var(--bad); }
+  .res div + div { margin-top: 4px; }
   .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-inline-end: 6px; animation: pulse 1.4s ease-in-out infinite; vertical-align: middle; }
 </style>
 </head>
@@ -80,6 +94,19 @@
   <section class="card problem" id="problem" hidden></section>
 
   <section class="tables" id="tables"></section>
+
+  <section class="card ctl" id="ctl">
+    <div class="thead"><h2>🧺 איסוף מהאתר</h2><span class="badge" id="keylbl">–</span></div>
+    <div id="keyform" hidden>
+      <div class="row">
+        <input id="keyin" type="password" autocomplete="off" placeholder="github_pat_…" aria-label="מפתח GitHub">
+        <button class="go" id="keysave">שמור</button>
+      </div>
+      <p>כדי שרק אתה תוכל לשלוח את הבוט, צריך להדביק כאן פעם אחת טוקן של GitHub עם הרשאת Contents: Read and write לריפו הזה. הטוקן נשמר רק בדפדפן הזה ולא נשלח לשום מקום חוץ מ-GitHub.</p>
+    </div>
+    <div class="res" id="cmdres">הכפתור "לך לאסוף" בכל שולחן שולח את הבוט לאסוף מיד.</div>
+    <p id="keyrow" hidden><button class="linkbtn" id="keyforget">מחק את המפתח מהדפדפן הזה</button></p>
+  </section>
 
   <section class="shots">
     <article class="card shot">
@@ -110,6 +137,17 @@
   const GH = m && repo ? { owner: m[1], repo } : null;
 
   let data = null, lastSha = null, slow = false, apiBlockedUntil = 0, nextCheck = 0;
+  let pending = null;  // {id, at} of the last "collect now" we sent
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} },
+  };
+  const token = () => store.get("gh_token");
+  const authH = () => token() ? { Authorization: "Bearer " + token(), Accept: "application/vnd.github+json" } : {};
+  // with your key GitHub allows 5000 checks/hour, so we can check much more often
+  const waiting = () => pending && !(data && data.command && data.command.id === pending.id)
+    && Date.now() - pending.at < 4 * 60000;
+  const refreshSec = () => waiting() ? 12 : (token() ? 30 : REFRESH_SEC);
   const shown = { screen: null, inventory: null };
 
   function fmt(sec) {
@@ -131,7 +169,8 @@
     if (!GH) return { sha: "local", base: "" };
     if (Date.now() > apiBlockedUntil) {
       try {
-        const r = await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/git/ref/heads/data`, { cache: "no-store" });
+        const r = await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/git/ref/heads/data`, { cache: "no-store", headers: authH() });
+        if (r.status === 401) { store.set("gh_token", null); keyUi(); }
         if (r.ok) {
           const sha = (await r.json()).object.sha;
           slow = false;
@@ -148,7 +187,7 @@
   }
 
   async function load() {
-    nextCheck = Date.now() + REFRESH_SEC * 1000;
+    nextCheck = Date.now() + refreshSec() * 1000;
     try {
       const loc = await locate();
       const fixed = loc.sha && loc.sha !== "local";
@@ -231,16 +270,101 @@
     const known = tAvg.filter(([, a]) => a);
     const slowest = known.length > 1 ? Math.max(...known.map(([, a]) => a)) : null;
 
+    cmdResult();
+    const busy = pending && !(data.command && data.command.id === pending.id);
     $("tables").innerHTML = [...groups].map(([t, ps], idx) => {
       const a = tAvg[idx][1];
+      const potIdx = data.pots.indexOf(ps[0]);
+      const btn = GH ? `<button class="go" data-pot="${potIdx}" ${busy ? "disabled" : ""}>🧺 לך לאסוף עכשיו</button>` : "";
       let badge = a ? `<span class="badge">ממוצע ${fmt(a)}</span>` : `<span class="badge">עוד לא נמדד</span>`;
       if (a && slowest && a < slowest * 0.97) {
         badge = `<span class="badge fast">⚡ מהיר ב-${Math.round((1 - a / slowest) * 100)}% · ${fmt(a)}</span>`;
       }
       return `<article class="card"><div class="thead"><h2>${esc(t)}</h2>${badge}</div>
-        ${ps.map((p) => potHtml(p, now)).join("")}</article>`;
+        ${ps.map((p) => potHtml(p, now)).join("")}${btn}</article>`;
     }).join("");
   }
+
+  // ---------------------------------------------------------------- collect button
+  function keyUi() {
+    const has = !!token();
+    $("keyform").hidden = has;
+    $("keyrow").hidden = !has;
+    $("keylbl").textContent = has ? "🔑 מחובר" : "צריך מפתח";
+    $("ctl").hidden = !GH;
+  }
+
+  function say(html, bad) {
+    $("cmdres").className = "res" + (bad ? " bad" : "");
+    $("cmdres").innerHTML = html;
+  }
+
+  function cmdResult() {
+    if (!pending) return;
+    const c = data && data.command;
+    if (!c || c.id !== pending.id) {
+      const s = Math.round((Date.now() - pending.at) / 1000);
+      if (s > 4 * 60) say("הבוט לא ענה אחרי 4 דקות. בדוק שהוא רץ (הנקודה למעלה) ושהוא הופעל מחדש אחרי העדכון.", true);
+      else say(`⏳ נשלח. מחכה שהבוט יקבל את זה… (${s} שנ')`);
+      return;
+    }
+    const lines = [], L = (t) => lines.push(`<div>${t}</div>`);
+    let bad = false;
+    if (c.error) { L(`❌ שגיאה: ${esc(c.error)}`); bad = true; }
+    if (c.collected.length) L(`✅ נאסף: ${c.collected.map(esc).join(", ")}`);
+    if (c.still_grown.length) { L(`⚠️ ${c.still_grown.map(esc).join(", ")} עדיין נראה מוכן, כנראה האיסוף לא הצליח`); bad = true; }
+    if (c.not_grown.length) L(`ℹ️ ${c.not_grown.map(esc).join(", ")} לא נראה מוכן, הבוט הלך בכל זאת`);
+    if (!c.was_home) { L("⚠️ הדמות לא הייתה בנקודה לפני ההליכה, אז ייתכן שהיא לא הגיעה לשולחן"); bad = true; }
+    if (!c.home_after) { L("⚠️ אחרי ההליכה הדמות לא בנקודה. תסתכל בצילום המסך"); bad = true; }
+    if (!lines.length) L("✅ הבוט הלך לשולחן וחזר");
+    L(`<small>בוצע ${ago(Date.now() / 1000 - c.at)} · צילום מסך חדש למטה</small>`);
+    say(lines.join(""), bad);
+  }
+
+  async function sendCollect(pot, button) {
+    if (!token()) { keyUi(); say("קודם צריך להדביק מפתח (למעלה בכרטיס הזה).", true); $("keyin").focus(); return; }
+    button.disabled = true;
+    say("שולח…");
+    const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/command.json`;
+    const h = { ...authH(), "Content-Type": "application/json" };
+    try {
+      let sha;
+      const g = await fetch(url + "?ref=cmd&t=" + Date.now(), { headers: authH(), cache: "no-store" });
+      if (g.status === 401) { store.set("gh_token", null); keyUi(); throw new Error("המפתח לא תקין, הדבק אותו שוב"); }
+      if (g.ok) sha = (await g.json()).sha;
+      const cmd = { id: (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)), pot, at: Date.now() };
+      const body = { message: "collect now (website)", branch: "cmd", content: btoa(JSON.stringify(cmd)) };
+      if (sha) body.sha = sha;
+      const p = await fetch(url, { method: "PUT", headers: h, body: JSON.stringify(body) });
+      if (p.status === 401 || p.status === 403) throw new Error("למפתח אין הרשאת כתיבה (Contents: Read and write) לריפו הזה");
+      if (p.status === 404 || p.status === 422) {
+        const msg = ((await p.json().catch(() => ({}))).message || "");
+        throw new Error(/branch/i.test(msg) ? "הבוט עוד לא הכין את ערוץ הפקודות. הפעל מחדש את הבוט עם הגרסה החדשה" : "GitHub: " + msg);
+      }
+      if (!p.ok) throw new Error("GitHub החזיר " + p.status);
+      pending = { id: cmd.id, at: Date.now() };
+      nextCheck = Date.now() + 12000;
+      cmdResult();
+    } catch (e) {
+      say("❌ לא נשלח: " + esc(e.message), true);
+      button.disabled = false;
+    }
+  }
+
+  $("tables").addEventListener("click", (e) => {
+    const b = e.target.closest("button.go");
+    if (b) sendCollect(Number(b.dataset.pot), b);
+  });
+  $("keysave").addEventListener("click", () => {
+    const v = $("keyin").value.trim();
+    if (!v) return;
+    store.set("gh_token", v);
+    $("keyin").value = "";
+    keyUi();
+    say("🔑 המפתח נשמר. עכשיו אפשר ללחוץ \"לך לאסוף עכשיו\".");
+  });
+  $("keyforget").addEventListener("click", () => { store.set("gh_token", null); keyUi(); });
+  keyUi();
 
   load();
   // hidden tabs don't check, so several open tabs/phones don't use up GitHub's limit
