@@ -133,6 +133,7 @@
       <div class="thead"><h2><span class="live"></span>מסך המשחק</h2><span class="badge" id="scrlbl">–</span></div>
       <a id="scrlink" class="ov" target="_blank" rel="noopener"><img id="scrimg" alt="צילום מסך מהמשחק" hidden><div class="boxes" id="scrbox"></div></a>
       <div class="empty" id="scrempty">עוד אין צילום מסך</div>
+      <button class="go" id="shotbtn" hidden>📸 צלם עכשיו</button>
     </article>
     <article class="card shot">
       <div class="thead"><h2>🎒 אינוונטורי</h2><span class="badge" id="invlbl">–</span></div>
@@ -387,8 +388,16 @@
     const c = data && data.command;
     if (!c || c.id !== pending.id) {
       const s = Math.round((Date.now() - pending.at) / 1000);
+      if (s > 4 * 60) $("shotbtn").disabled = false;
       if (s > 4 * 60) say("הבוט לא ענה אחרי 4 דקות. בדוק שהוא רץ (הנקודה למעלה) ושהוא הופעל מחדש אחרי העדכון.", true);
       else say(`⏳ נשלח. מחכה שהבוט יקבל את זה… (${s} שנ')`);
+      return;
+    }
+    if (c.action === "screenshot") {
+      say(c.source === "desktop"
+        ? "⚠️ חלון המשחק לא נמצא (אולי קרס), אז צילמתי את כל המסך. התמונה בכרטיס \"מסך המשחק\"."
+        : `📸 צילום מסך חדש בכרטיס "מסך המשחק" · ${ago(Date.now() / 1000 - c.at)}`, c.source === "desktop");
+      $("shotbtn").disabled = false;
       return;
     }
     const lines = [], L = (t) => lines.push(`<div>${t}</div>`);
@@ -404,7 +413,9 @@
     say(lines.join(""), bad);
   }
 
-  async function sendCollect(pot, button) {
+  async function sendCollect(pot, button) { return sendCmd({ action: "collect", pot }, button); }
+
+  async function sendCmd(extra, button) {
     if (!token()) { keyUi(); say("קודם צריך להדביק מפתח (למעלה בכרטיס הזה).", true); $("keyin").focus(); return; }
     button.disabled = true;
     say("שולח…");
@@ -415,8 +426,8 @@
       const g = await fetch(url + "?ref=cmd&t=" + Date.now(), { headers: authH(), cache: "no-store" });
       if (g.status === 401) { store.set("gh_token", null); keyUi(); throw new Error("המפתח לא תקין, הדבק אותו שוב"); }
       if (g.ok) sha = (await g.json()).sha;
-      const cmd = { id: (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)), pot, at: Date.now() };
-      const body = { message: "collect now (website)", branch: "cmd", content: btoa(JSON.stringify(cmd)) };
+      const cmd = { id: (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)), ...extra, at: Date.now() };
+      const body = { message: extra.action + " (website)", branch: "cmd", content: btoa(JSON.stringify(cmd)) };
       if (sha) body.sha = sha;
       const p = await fetch(url, { method: "PUT", headers: h, body: JSON.stringify(body) });
       if (p.status === 401 || p.status === 403) throw new Error("למפתח אין הרשאת כתיבה (Contents: Read and write) לריפו הזה");
@@ -438,6 +449,8 @@
     const b = e.target.closest("button.go");
     if (b) sendCollect(Number(b.dataset.pot), b);
   });
+  $("shotbtn").hidden = !GH;
+  $("shotbtn").addEventListener("click", (e) => sendCmd({ action: "screenshot" }, e.currentTarget));
   $("keysave").addEventListener("click", () => {
     const v = $("keyin").value.trim();
     if (!v) return;
