@@ -375,7 +375,7 @@
     if (stv) {
       $("stashlbl").textContent = `הופקד ${ago(now - stv.at)}` + (stv.stash_full ? " · מלא!" : "");
       if (stv.inv_full) sw.innerHTML = "🛑 נגמר המקום גם בסטאש וגם באינוונטורי<small>הבוט כבר לא יכול לאסוף לוט חדש. צריך לפנות את הסטאש.</small>";
-      else if (stv.stash_full) sw.innerHTML = "📦 הסטאש מלא<small>אין בו יותר מקום. מעכשיו הלוט נשאר באינוונטורי עד שהוא יתמלא. כדאי לפנות את הסטאש.</small>";
+      else if (stv.stash_full) sw.innerHTML = `📦 הסטאש מלא<small>${stv.left != null ? `${stv.left} פריטים נשארו באינוונטורי (${stv.total - stv.left} משבצות פנויות). ` : ""}מעכשיו הלוט נשאר באינוונטורי עד שהוא יתמלא. כדאי לפנות את הסטאש.</small>`;
       else if (stv.error) sw.innerHTML = `⚠️ בעיה בסטאש<small>${esc(stv.error)}</small>`;
     }
     $("scrlbl").textContent = data.screen_updated ? `צולם ${ago(now - data.screen_updated)} · כל 3 דק'` : "עוד לא צולם";
