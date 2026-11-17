@@ -81,6 +81,26 @@
   .res { font-size: 14px; }
   .res.bad { color: var(--bad); }
   .res div + div { margin-top: 4px; }
+  .ov { position: relative; display: block; }
+  .boxes { position: absolute; inset: 0; pointer-events: none; }
+  img[hidden] + .boxes, .noboxes .boxes { display: none; }
+  .bx { position: absolute; border: 2px solid var(--c); border-radius: 4px; box-shadow: 0 0 0 1px rgba(0,0,0,.45); }
+  .bx span { position: absolute; top: -1px; inset-inline-start: -1px; background: var(--c); color: #111; font-size: 11px; font-weight: 700;
+    padding: 1px 6px; border-radius: 3px 0 4px 0; white-space: nowrap; }
+  .bx.inv { border-style: dashed; }
+  .calib { margin-top: 16px; }
+  .calib .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+  .calib img { display: block; width: 100%; height: auto; border-radius: 10px; background: var(--track); }
+  .refs h3 { font-size: 15px; margin: 0 0 8px; }
+  .refs .tbl + .tbl { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .refs .lbl { font-size: 13px; color: var(--muted); margin: 6px 0 4px; }
+  .thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .thumbs img { width: calc(33.3% - 4px); min-width: 70px; aspect-ratio: auto; border: 2px solid transparent; }
+  .thumbs.g img { border-color: var(--ready); }
+  .thumbs.e img { border-color: var(--line); }
+  .score.good { background: color-mix(in srgb, var(--grow) 18%, transparent); color: var(--grow); }
+  .score.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+  .toggle { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; }
   .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-inline-end: 6px; animation: pulse 1.4s ease-in-out infinite; vertical-align: middle; }
 </style>
 </head>
@@ -111,7 +131,7 @@
   <section class="shots">
     <article class="card shot">
       <div class="thead"><h2><span class="live"></span>מסך המשחק</h2><span class="badge" id="scrlbl">–</span></div>
-      <a id="scrlink" target="_blank" rel="noopener"><img id="scrimg" alt="צילום מסך מהמשחק" hidden></a>
+      <a id="scrlink" class="ov" target="_blank" rel="noopener"><img id="scrimg" alt="צילום מסך מהמשחק" hidden><div class="boxes" id="scrbox"></div></a>
       <div class="empty" id="scrempty">עוד אין צילום מסך</div>
     </article>
     <article class="card shot">
@@ -119,6 +139,21 @@
       <a id="invlink" target="_blank" rel="noopener"><img id="invimg" alt="צילום האינוונטורי מהמשחק" hidden></a>
       <div class="empty" id="invempty">עוד אין צילום של האינוונטורי</div>
     </article>
+  </section>
+
+  <section class="card calib" id="calib" hidden>
+    <div class="thead"><h2>📍 הכיול: מה הבוט מצפה לראות</h2>
+      <label class="toggle"><input type="checkbox" id="showboxes" checked> ריבועים</label></div>
+    <div class="grid">
+      <div>
+        <div class="thead"><h3 style="margin:0;font-size:15px">הנקודה של הלילה</h3><span class="badge score" id="hscore">–</span></div>
+        <div class="ov" id="homewrap"><img id="homeimg" alt="איך המסך נראה מהנקודה בזמן הכיול" hidden><div class="boxes" id="homebox"></div></div>
+        <div class="empty" id="homeempty" style="padding:28px 12px;text-align:center;color:var(--muted);background:var(--track);border-radius:10px;font-size:14px">אין תמונה של הנקודה. צריך להריץ record_trip.py</div>
+        <p class="lbl" style="font-size:13px;color:var(--muted);margin:8px 0 0">השווה לצילום המסך החי למעלה: אם השולחנות לא בתוך הריבועים, הדמות או המצלמה זזו. הציון הוא כמה המסך עכשיו דומה לתמונה הזו, ומתחת לסף הבוט לא זז.</p>
+      </div>
+      <div class="refs" id="refs"></div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:12px 0 0" id="calibstamp"></p>
   </section>
 
   <div class="err" id="err" hidden></div>
@@ -199,6 +234,19 @@
       lastSha = loc.sha;
       setPic("screen", "scr", "screen.jpg", data.screen_updated, loc.base, bust);
       setPic("inventory", "inv", "inventory.jpg", data.inventory_updated, loc.base, bust);
+      const cal = data.calib;
+      if (cal) {
+        setPic("home", "home", "calib_home.jpg", cal.home, loc.base, bust);
+        if (cal.stamp !== shown.refs) {
+          shown.refs = cal.stamp;
+          const v = bust || "?v=" + Math.round(cal.stamp);
+          $("refs").innerHTML = cal.refs.map((r, i) => `<div class="tbl"><h3>${esc(cal.names[i])}</h3>
+            <div class="lbl">מוכן לאיסוף (${r.g.length})</div>
+            <div class="thumbs g">${r.g.map((f) => `<img src="${loc.base + f + v}" alt="">`).join("") || "אין"}</div>
+            <div class="lbl">לא מוכן (${r.e.length})</div>
+            <div class="thumbs e">${r.e.map((f) => `<img src="${loc.base + f + v}" alt="">`).join("") || "אין"}</div></div>`).join("");
+        }
+      }
       $("err").hidden = true;
     } catch (e) {
       $("err").hidden = false;
@@ -213,7 +261,7 @@
     const img = $(id + "img");
     img.onload = () => { img.hidden = false; $(id + "empty").hidden = true; shown[key] = stamp; };
     img.src = url;
-    $(id + "link").href = url;
+    if ($(id + "link")) $(id + "link").href = url;
   }
 
   function potHtml(p, now) {
@@ -251,6 +299,7 @@
     $("dot").className = "dot " + (online ? "on" : "off");
     $("stxt").textContent = (online ? "הבוט פעיל" : (data.running ? "אין עדכון מהבוט" : "הבוט כבוי")) + ` · עודכן ${ago(age)}`;
 
+    renderCalib(now);
     const pr = $("problem");
     pr.hidden = !data.problem;
     if (data.problem) pr.innerHTML = `⚠️ הבוט עצר: הדמות לא נמצאת בנקודה שלה<small>${esc(data.problem)}</small>`;
@@ -284,6 +333,40 @@
         ${ps.map((p) => potHtml(p, now)).join("")}${btn}</article>`;
     }).join("");
   }
+
+  // ---------------------------------------------------------------- calibration boxes
+  const BOXC = ["#5ad35a", "#3cb4ff", "#ff7a3c", "#dc50dc"];
+  function boxHtml(cal, w, h) {
+    if (!w || !h) return "";
+    const one = (r, label, color, cls) => `<div class="bx ${cls}" style="--c:${color};left:${r[0] / w * 100}%;top:${r[1] / h * 100}%;width:${r[2] / w * 100}%;height:${r[3] / h * 100}%"><span>${esc(label)}</span></div>`;
+    return cal.rois.map((r, i) => one(r, cal.names[i], BOXC[i % BOXC.length], "")).join("");
+  }
+  function renderCalib(now) {
+    const cal = data.calib;
+    $("calib").hidden = !cal;
+    if (!cal) return;
+    const hasHome = !!cal.home;
+    $("homeempty").hidden = hasHome;
+    if (!hasHome) $("homeimg").hidden = true;
+    $("homebox").innerHTML = boxHtml(cal, cal.w, cal.h);
+    const ss = data.screen_size || [cal.w, cal.h];
+    $("scrbox").innerHTML = boxHtml(cal, ss[0], ss[1]);
+    const hs = $("hscore");
+    if (data.home_score != null && hasHome) {
+      const ok = data.home_score >= cal.threshold;
+      hs.className = "badge score " + (ok ? "good" : "bad");
+      hs.textContent = `${ok ? "✓ במקום" : "✗ זז"} · דמיון ${data.home_score.toFixed(2)} (סף ${cal.threshold})`;
+    } else { hs.className = "badge score"; hs.textContent = hasHome ? "–" : "אין נקודה"; }
+    $("calibstamp").textContent = `הכיול עודכן לאחרונה ${new Date(cal.stamp * 1000).toLocaleString("he-IL")}`;
+  }
+  function applyBoxToggle() {
+    const on = $("showboxes").checked;
+    document.body.classList.toggle("noboxes", !on);
+    store.set("boxes", on ? "1" : "0");
+  }
+  $("showboxes").checked = store.get("boxes") !== "0";
+  $("showboxes").addEventListener("change", applyBoxToggle);
+  applyBoxToggle();
 
   // ---------------------------------------------------------------- collect button
   function keyUi() {
