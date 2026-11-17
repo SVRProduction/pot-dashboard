@@ -128,6 +128,7 @@
   </section>
 
   <section class="card problem" id="problem" hidden></section>
+  <section class="card problem" id="stashwarn" hidden></section>
 
   <section class="tables" id="tables"></section>
 
@@ -155,6 +156,11 @@
       <div class="thead"><h2>🎒 אינוונטורי</h2><span class="badge" id="invlbl">–</span></div>
       <a id="invlink" target="_blank" rel="noopener"><img id="invimg" alt="צילום האינוונטורי מהמשחק" hidden></a>
       <div class="empty" id="invempty">עוד אין צילום של האינוונטורי</div>
+    </article>
+    <article class="card shot" id="stashcard" hidden>
+      <div class="thead"><h2>🗄️ סטאש</h2><span class="badge" id="stashlbl">–</span></div>
+      <a id="stashlink" target="_blank" rel="noopener"><img id="stashimg" alt="צילום הסטאש אחרי ההפקדה" hidden></a>
+      <div class="empty" id="stashempty">עוד לא הופקד</div>
     </article>
   </section>
 
@@ -251,6 +257,7 @@
       lastSha = loc.sha;
       setPic("screen", "scr", "screen.jpg", data.screen_updated, loc.base, bust);
       setPic("inventory", "inv", "inventory.jpg", data.inventory_updated, loc.base, bust);
+      if (data.stash) setPic("stash", "stash", "stash.jpg", data.stash.at, loc.base, bust);
       const cal = data.calib;
       if (cal) {
         setPic("home", "home", "calib_home.jpg", cal.home, loc.base, bust);
@@ -361,6 +368,15 @@
     const pr = $("problem");
     pr.hidden = !data.problem;
     if (data.problem) pr.innerHTML = `⚠️ הבוט עצר: הדמות לא נמצאת בנקודה שלה<small>${esc(data.problem)}</small>`;
+    const sw = $("stashwarn"), stv = data.stash;
+    $("stashcard").hidden = !stv;
+    sw.hidden = !(stv && (stv.stash_full || stv.error));
+    if (stv) {
+      $("stashlbl").textContent = `הופקד ${ago(now - stv.at)}` + (stv.stash_full ? " · מלא!" : "");
+      if (stv.inv_full) sw.innerHTML = "🛑 נגמר המקום גם בסטאש וגם באינוונטורי<small>הבוט כבר לא יכול לאסוף לוט חדש. צריך לפנות את הסטאש.</small>";
+      else if (stv.stash_full) sw.innerHTML = "📦 הסטאש מלא<small>אין בו יותר מקום. מעכשיו הלוט נשאר באינוונטורי עד שהוא יתמלא. כדאי לפנות את הסטאש.</small>";
+      else if (stv.error) sw.innerHTML = `⚠️ בעיה בסטאש<small>${esc(stv.error)}</small>`;
+    }
     $("scrlbl").textContent = data.screen_updated ? `צולם ${ago(now - data.screen_updated)} · כל 3 דק'` : "עוד לא צולם";
     $("invlbl").textContent = (data.inventory_updated ? `צולם ${ago(now - data.inventory_updated)}` : "עוד לא צולם")
       + ` · ${data.collections} איסופים`;
