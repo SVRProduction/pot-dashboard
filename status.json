@@ -1,0 +1,110 @@
+{
+ "updated": 1794995939.0198638,
+ "running": true,
+ "collections": 20,
+ "inventory_updated": 1794986532.0193012,
+ "screen_updated": 1794986615.9307635,
+ "pots": [
+  {
+   "name": "Table 1",
+   "table": "Table 1",
+   "state": "growing",
+   "last_empty": 1794986509.8144753,
+   "avg_grow_sec": 2939.0066666666667,
+   "last_grow_sec": 6824.7,
+   "samples": 17,
+   "collected": 20
+  }
+ ],
+ "events": [
+  {
+   "kind": "bot",
+   "from": 1794913254,
+   "to": 1794913395,
+   "note": "bot was not running (closed or crashed), PC stayed on"
+  },
+  {
+   "kind": "stopped",
+   "from": 1794913449,
+   "to": 1794914329,
+   "note": "bot was stopped (F12 / closed)"
+  },
+  {
+   "kind": "stopped",
+   "from": 1794918609,
+   "to": 1794921664,
+   "note": "bot was stopped (F12 / closed)"
+  },
+  {
+   "kind": "stopped",
+   "from": 1794921855,
+   "to": 1794922305,
+   "note": "bot was stopped (F12 / closed)"
+  },
+  {
+   "kind": "bot",
+   "from": 1794923116,
+   "to": 1794923353,
+   "note": "bot was not running (closed or crashed), PC stayed on"
+  }
+ ],
+ "stash": {
+  "at": 1794986526.8946502,
+  "stash_full": true,
+  "inv_full": false,
+  "left": 1,
+  "total": 42,
+  "error": null
+ },
+ "health": {
+  "pc_boot": 1794798888,
+  "bot_started": 1794938270,
+  "game": "missing",
+  "game_since": 1794986586
+ },
+ "calib": {
+  "names": [
+   "Table 1"
+  ],
+  "rois": [
+   [
+    3,
+    259,
+    219,
+    155
+   ]
+  ],
+  "inv_roi": [
+   1100,
+   137,
+   483,
+   748
+  ],
+  "threshold": 0.6,
+  "refs": [
+   {
+    "g": [
+     "calib_ref_0_g_0.jpg"
+    ],
+    "e": [
+     "calib_ref_0_e_0.jpg"
+    ]
+   }
+  ],
+  "h": 1080,
+  "w": 1920,
+  "home": 1794922560.1369798,
+  "stamp": 1794928855.8016016
+ },
+ "home_score": 0.96,
+ "screen_size": [
+  4920,
+  1920
+ ],
+ "command": {
+  "id": "53bba328-adda-4ece-a17e-f23fc7e3db83",
+  "at": 1794986615.9327652,
+  "action": "screenshot",
+  "source": "desktop"
+ }
+}
